@@ -68,7 +68,7 @@ const INITIAL_PDF = {
 const PUBLIC_PDFS = [
   {
     documentId: 'public-demo-embed-pdf-viewer',
-    url: 'http://testcdn.researcher.life/discovery/pdf/demo-embed-pdf-viewer.pdf',
+    url: 'https://testcdn.researcher.life/discovery/pdf/demo-embed-pdf-viewer.pdf',
     name: '100 MB+ Size pdf',
   },
 ]

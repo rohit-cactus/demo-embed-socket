@@ -1,0 +1,19 @@
+.default-viewer {
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.default-viewer > div {
+  flex: 1 !important;
+  min-height: 0 !important;
+  max-height: 100% !important;
+}
+
+/* Ensure all nested children of PDFViewer have proper sizing */
+.default-viewer div div,
+.default-viewer div div div,
+.default-viewer canvas {
+  height: auto !important;
+}

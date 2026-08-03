@@ -1,0 +1,71 @@
+.rich-text-editor-wrapper {
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid #d1d5db;
+}
+
+.rich-text-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: #f9fafb;
+  border-bottom: 1px solid #d1d5db;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #374151;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.toolbar-btn:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.toolbar-btn.active {
+  border-color: #059669;
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: #d1d5db;
+  margin: 0 2px;
+}
+
+.rich-text-content {
+  width: 100%;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #0f172a;
+  background: #ffffff;
+  outline: none;
+  resize: vertical;
+  overflow: auto;
+  min-height: 80px;
+}
+
+.rich-text-content:empty::before {
+  content: attr(data-placeholder);
+  color: #9ca3af;
+}
+
+.rich-text-content:focus {
+  box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.1);
+}

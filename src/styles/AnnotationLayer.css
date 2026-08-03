@@ -1,0 +1,142 @@
+.annotation-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.annotation-layer.active-tool-text,
+.annotation-layer.active-tool-note,
+.annotation-layer.active-tool-ink {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+.annotation-layer.active-tool-select {
+  pointer-events: auto;
+  cursor: default;
+}
+
+.annotation-highlight {
+  pointer-events: auto;
+  transition: opacity 0.2s;
+}
+
+.annotation-highlight:hover {
+  opacity: 0.6 !important;
+}
+
+.annotation-highlight.selected {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 1px;
+}
+
+.annotation-underline,
+.annotation-strikeout {
+  pointer-events: auto;
+}
+
+.annotation-underline.selected,
+.annotation-strikeout.selected {
+  outline: 1px solid var(--primary-color);
+}
+
+.annotation-note {
+  pointer-events: auto;
+  font-size: 1.5rem;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.2));
+  transition: transform 0.2s;
+}
+
+.annotation-note:hover {
+  transform: scale(1.1);
+}
+
+.annotation-note.selected {
+  transform: scale(1.2);
+}
+
+.annotation-text {
+  pointer-events: auto;
+  background: rgba(255, 255, 0, 0.1);
+  padding: 0.25rem;
+  border-radius: 0.25rem;
+  max-width: 300px;
+}
+
+.annotation-text.selected {
+  outline: 2px solid var(--primary-color);
+}
+
+.annotation-ink.selected path {
+  stroke-width: 4;
+}
+
+.text-input-popup,
+.note-input-popup {
+  position: absolute;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+  min-width: 250px;
+  z-index: 100;
+  pointer-events: auto;
+}
+
+.text-input-popup textarea,
+.note-input-popup textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.text-input-popup textarea:focus,
+.note-input-popup textarea:focus {
+  outline: none;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+.popup-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+  margin-top: 0.75rem;
+}
+
+.popup-actions button {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.popup-actions button:first-child {
+  background: var(--primary-color);
+  color: white;
+}
+
+.popup-actions button:first-child:hover {
+  background: var(--primary-dark);
+}
+
+.popup-actions button:last-child {
+  background: var(--surface-alt);
+  color: var(--text-secondary);
+}
+
+.popup-actions button:last-child:hover {
+  background: var(--border);
+}

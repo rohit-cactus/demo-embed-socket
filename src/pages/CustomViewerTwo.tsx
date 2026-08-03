@@ -1219,6 +1219,38 @@ const ThreadSidebar = ({
   )
 }
 
+const PdfSkeletonLoader = () => (
+  <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+    {/* PDF pages area */}
+    <div style={{ flex: 1, minWidth: 0, background: '#cbd5e1', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16, padding: '20px 16px', overflowY: 'auto' }}>
+      {[0.92, 0.88, 0.94].map((scale, i) => (
+        <div
+          key={i}
+          className="pdf-skeleton-bone"
+          style={{ width: `${scale * 100}%`, maxWidth: 560, aspectRatio: '0.707', borderRadius: 6, flexShrink: 0 }}
+        />
+      ))}
+    </div>
+    {/* Thread sidebar skeleton */}
+    <div style={{ width: 260, borderLeft: '1px solid #e2e8f0', background: '#ffffff', padding: '12px 10px', display: 'flex', flexDirection: 'column', gap: 10, flexShrink: 0 }}>
+      <div className="pdf-skeleton-bone" style={{ height: 16, width: '60%' }} />
+      {[80, 60, 100, 70].map((h, i) => (
+        <div key={i} style={{ borderRadius: 8, border: '1px solid #e2e8f0', padding: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div className="pdf-skeleton-bone" style={{ width: 28, height: 28, borderRadius: '50%' }} />
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <div className="pdf-skeleton-bone" style={{ height: 10, width: '50%' }} />
+              <div className="pdf-skeleton-bone" style={{ height: 8, width: '35%' }} />
+            </div>
+          </div>
+          <div className="pdf-skeleton-bone" style={{ height: h / 10, width: '100%' }} />
+          <div className="pdf-skeleton-bone" style={{ height: 8, width: '80%' }} />
+        </div>
+      ))}
+    </div>
+  </div>
+)
+
 const AnnotatedDocumentWorkspace = ({
   documentId,
   pdfName,
@@ -2001,7 +2033,32 @@ export const CustomViewerTwo = () => {
                 setPersistencePaused={setPersistencePaused}
               />
             </div>
-            ) : null
+            ) : (
+              <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-lg border border-gray-300 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-900">
+                {/* Header skeleton */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+                  <div className="pdf-skeleton-bone" style={{ height: 14, width: 120 }} />
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div className="pdf-skeleton-bone" style={{ height: 28, width: 160 }} />
+                    <div className="pdf-skeleton-bone" style={{ height: 28, width: 80 }} />
+                  </div>
+                </div>
+                {/* Toolbar skeleton */}
+                <div style={{ padding: '10px 12px', borderBottom: '1px solid #e2e8f0', background: '#f3f4f6', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {[90, 110, 70, 120, 130].map((w, i) => (
+                      <div key={i} className="pdf-skeleton-bone" style={{ height: 26, width: w }} />
+                    ))}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {[60, 60, 60, 60, 60, 60].map((w, i) => (
+                      <div key={i} className="pdf-skeleton-bone" style={{ height: 26, width: w }} />
+                    ))}
+                  </div>
+                </div>
+                <PdfSkeletonLoader />
+              </div>
+            )
           })()
         }
       </DocumentContent>

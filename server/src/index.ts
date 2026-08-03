@@ -28,6 +28,9 @@ const io = new Server(httpServer, {
 // In-memory document rooms (persisted to file)
 const documentRooms = new Map<string, DocumentRoom>()
 
+// Track socket.id -> { documentId, userId } for cleanup on disconnect
+const socketUserMap = new Map<string, Array<{ documentId: string; userId: string }>>()
+
 // Load persisted data on startup
 async function initializeServer() {
   console.log('Loading persisted data...')
@@ -123,6 +126,12 @@ io.on('connection', (socket) => {
     // Join the socket room
     socket.join(`doc:${documentId}`)
 
+    // Track this socket's user for cleanup on disconnect
+    if (!socketUserMap.has(socket.id)) {
+      socketUserMap.set(socket.id, [])
+    }
+    socketUserMap.get(socket.id)!.push({ documentId, userId })
+
     // Get or create the document room
     const room = getOrCreateRoom(documentId)
 
@@ -157,6 +166,12 @@ io.on('connection', (socket) => {
     if (room) {
       room.users.delete(userId)
       socket.to(`doc:${documentId}`).emit('userLeft', { userId })
+    }
+
+    // Clean up socket tracking
+    const userDocs = socketUserMap.get(socket.id)
+    if (userDocs) {
+      socketUserMap.set(socket.id, userDocs.filter(u => !(u.documentId === documentId && u.userId === userId)))
     }
   })
 
@@ -309,22 +324,26 @@ io.on('connection', (socket) => {
     }
   })
 
-  // Handle disconnect
+  // Handle disconnect — remove user from all document rooms
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`)
 
-    // Remove user from all rooms they were in
-    documentRooms.forEach((room, documentId) => {
-      let removed = false
-      room.users.forEach((user, userId) => {
-        // In a real app, you'd track socket.id -> userId mapping
-        // For now, we'll just leave users connected until they explicitly leave
-      })
+    const userDocs = socketUserMap.get(socket.id)
+    if (userDocs) {
+      userDocs.forEach(({ documentId, userId }) => {
+        const room = documentRooms.get(documentId)
+        if (room) {
+          const wasInRoom = room.users.has(userId)
+          room.users.delete(userId)
 
-      if (removed) {
-        socket.to(`doc:${documentId}`).emit('userLeft', { userId: 'disconnected' })
-      }
-    })
+          if (wasInRoom) {
+            console.log(`Removed user ${userId} from document ${documentId} on disconnect`)
+            io.to(`doc:${documentId}`).emit('userLeft', { userId })
+          }
+        }
+      })
+      socketUserMap.delete(socket.id)
+    }
   })
 })
 

@@ -201,7 +201,14 @@ const formatThreadTimestamp = (value: number) =>
 
 const buildPdfThreadContents = (thread: CommentThread) => {
   const lines = thread.messages
-    .map((message) => `${message.authorName}: ${message.text.trim()}`)
+    .map((message) => {
+      const raw = message.text || ''
+      // Strip HTML tags, decode entities, normalise whitespace for the PDF Contents field
+      const plain = extractPlainText(
+        decodeHtmlEntities(raw.replace(/<[^>]*>/g, ' '))
+      )
+      return plain ? `${message.authorName}: ${plain}` : ''
+    })
     .filter((line) => line.length > 0)
 
   return lines.join('\n\n')
@@ -537,18 +544,20 @@ const ImportExportToolbar = ({
           setPersistencePaused(false)
         }
 
-        // 2. For each thread, embed it into its annotation
-        threads.forEach((thread) => {
-          const annotationItem = snapshot.find(
-            (item) => item.annotation.id === thread.annotationId
-          )
-          const rootMessage = thread.messages[0]
-          if (annotationItem && annotationApi) {
-            annotationApi.updateAnnotation(
-              thread.pageIndex,
-              thread.annotationId,
-              {
-                // Use PDF-standard fields so external viewers (Adobe) can show comments.
+        // 2. For each thread, build a batch patch so all updates go through a
+        // single commit() call — individual updateAnnotation() each trigger an
+        // auto-commit that can hold the lock and silently drop subsequent ones.
+        const patches = threads
+          .map((thread) => {
+            const annotationItem = snapshot.find(
+              (item) => item.annotation.id === thread.annotationId
+            )
+            if (!annotationItem) return null
+            const rootMessage = thread.messages[0]
+            return {
+              pageIndex: thread.pageIndex,
+              id: thread.annotationId,
+              patch: {
                 author: rootMessage?.authorName || annotationItem.annotation.author,
                 created: rootMessage ? new Date(rootMessage.createdAt) : annotationItem.annotation.created,
                 modified: new Date(),
@@ -563,10 +572,14 @@ const ImportExportToolbar = ({
                     createdAt: thread.createdAt,
                   },
                 },
-              } as any
-            )
-          }
-        })
+              },
+            }
+          })
+          .filter((p): p is NonNullable<typeof p> => p !== null)
+
+        if (patches.length > 0) {
+          annotationApi.updateAnnotations(patches as any)
+        }
 
         // 3. Ensure in-memory updates are committed before creating the exported copy.
         annotationApi.commit().wait(

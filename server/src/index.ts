@@ -10,6 +10,7 @@ import type {
   AnnotationTransferItem,
   CommentThread,
   CommentMessage,
+  AnnotationLock,
 } from './types'
 import * as persistence from './persistence'
 
@@ -30,6 +31,9 @@ const documentRooms = new Map<string, DocumentRoom>()
 
 // Track socket.id -> { documentId, userId } for cleanup on disconnect
 const socketUserMap = new Map<string, Array<{ documentId: string; userId: string }>>()
+
+// Track annotation locks per document: documentId -> annotationId -> AnnotationLock
+const annotationLocks = new Map<string, Map<string, AnnotationLock>>()
 
 // Load persisted data on startup
 async function initializeServer() {
@@ -144,11 +148,14 @@ io.on('connection', (socket) => {
     }
     room.users.set(userId, user)
 
-    // Send current document state to the user
+    // Send current document state to the user (including current locks)
+    const docLocks = annotationLocks.get(documentId)
+    const locksArray = docLocks ? Array.from(docLocks.values()) : []
     socket.emit('documentState', {
       annotations: room.annotations,
       threads: room.threads,
       users: Array.from(room.users.values()),
+      lockedAnnotations: locksArray,
     })
 
     // Notify others that user joined
@@ -324,7 +331,70 @@ io.on('connection', (socket) => {
     }
   })
 
-  // Handle disconnect — remove user from all document rooms
+  // Handle annotation locking (prevent concurrent edits by stampede prevention)
+  socket.on('lockAnnotation', (data: {
+    documentId: string
+    annotationId: string
+    userId: string
+    userName: string
+  }) => {
+    const { documentId, annotationId, userId, userName } = data
+
+    // Get or create locks map for this document
+    if (!annotationLocks.has(documentId)) {
+      annotationLocks.set(documentId, new Map())
+    }
+    const docLocks = annotationLocks.get(documentId)!
+    const existingLock = docLocks.get(annotationId)
+
+    // Check if already locked by someone else
+    if (existingLock && existingLock.userId !== userId) {
+      socket.emit('lockError', {
+        annotationId,
+        message: `This annotation is being edited by ${existingLock.userName}`,
+        lockedBy: existingLock,
+      })
+      return
+    }
+
+    // Create or refresh the lock (30 second timeout for now)
+    const lock: AnnotationLock = {
+      annotationId,
+      userId,
+      userName,
+      acquiredAt: Date.now(),
+      expiresAt: Date.now() + 30000, // 30 second lock duration
+    }
+    docLocks.set(annotationId, lock)
+
+    // Broadcast lock to all users in the document
+    io.to(`doc:${documentId}`).emit('annotationLocked', { lock })
+    console.log(`Annotation ${annotationId} locked by ${userName} (${userId})`)
+  })
+
+  // Handle annotation unlocking
+  socket.on('unlockAnnotation', (data: {
+    documentId: string
+    annotationId: string
+    userId: string
+  }) => {
+    const { documentId, annotationId, userId } = data
+
+    const docLocks = annotationLocks.get(documentId)
+    if (!docLocks) return
+
+    const lock = docLocks.get(annotationId)
+    // Only allow the lock owner to unlock, or auto-expired locks
+    if (lock && (lock.userId === userId || Date.now() > lock.expiresAt)) {
+      docLocks.delete(annotationId)
+
+      // Broadcast unlock to all users in the document
+      io.to(`doc:${documentId}`).emit('annotationUnlocked', { annotationId })
+      console.log(`Annotation ${annotationId} unlocked`)
+    }
+  })
+
+  // Handle disconnect — remove user from all document rooms and clean up locks
   socket.on('disconnect', () => {
     console.log(`Client disconnected: ${socket.id}`)
 
@@ -340,6 +410,22 @@ io.on('connection', (socket) => {
             console.log(`Removed user ${userId} from document ${documentId} on disconnect`)
             io.to(`doc:${documentId}`).emit('userLeft', { userId })
           }
+        }
+
+        // Clean up any locks owned by this user
+        const docLocks = annotationLocks.get(documentId)
+        if (docLocks) {
+          const locksToRemove: string[] = []
+          docLocks.forEach((lock, annotationId) => {
+            if (lock.userId === userId) {
+              locksToRemove.push(annotationId)
+            }
+          })
+          locksToRemove.forEach((annotationId) => {
+            docLocks.delete(annotationId)
+            io.to(`doc:${documentId}`).emit('annotationUnlocked', { annotationId })
+            console.log(`Auto-unlocked annotation ${annotationId} on user ${userId} disconnect`)
+          })
         }
       })
       socketUserMap.delete(socket.id)

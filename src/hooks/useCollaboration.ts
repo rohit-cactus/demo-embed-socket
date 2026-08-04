@@ -64,6 +64,14 @@ export interface AnnotationTransferItem {
   }
 }
 
+export interface AnnotationLock {
+  annotationId: string
+  userId: string
+  userName: string
+  acquiredAt: number
+  expiresAt: number
+}
+
 // Socket server URL (default to localhost)
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3001'
 
@@ -117,6 +125,7 @@ export function useDocumentCollaboration(
   const [annotations, setAnnotations] = useState<AnnotationTransferItem[]>([])
   const [threads, setThreads] = useState<CommentThread[]>([])
   const [users, setUsers] = useState<User[]>([])
+  const [lockedAnnotations, setLockedAnnotations] = useState<Record<string, AnnotationLock>>({})
 
   // Initialize socket connection
   useEffect(() => {
@@ -173,12 +182,21 @@ export function useDocumentCollaboration(
       annotations: AnnotationTransferItem[]
       threads: CommentThread[]
       users: User[]
+      lockedAnnotations?: AnnotationLock[]
     }) => {
       console.log('Received document state:', data)
       joinedDocumentRef.current = documentId
       setAnnotations(data.annotations)
       setThreads(data.threads)
       setUsers(data.users)
+      // Convert array of locks to Record for easy lookup
+      if (data.lockedAnnotations) {
+        const lockMap: Record<string, AnnotationLock> = {}
+        data.lockedAnnotations.forEach(lock => {
+          lockMap[lock.annotationId] = lock
+        })
+        setLockedAnnotations(lockMap)
+      }
       setIsJoined(true)
     })
 
@@ -296,6 +314,40 @@ export function useDocumentCollaboration(
     }
   }, [documentId])
 
+  // Listen for annotation lock events
+  useEffect(() => {
+    const socket = socketRef.current
+    if (!socket || !documentId) return
+
+    socket.on('annotationLocked', (data: { lock: AnnotationLock }) => {
+      setLockedAnnotations(prev => ({
+        ...prev,
+        [data.lock.annotationId]: data.lock
+      }))
+      console.log(`Annotation ${data.lock.annotationId} locked by ${data.lock.userName}`)
+    })
+
+    socket.on('annotationUnlocked', (data: { annotationId: string }) => {
+      setLockedAnnotations(prev => {
+        const next = { ...prev }
+        delete next[data.annotationId]
+        return next
+      })
+      console.log(`Annotation ${data.annotationId} unlocked`)
+    })
+
+    socket.on('lockError', (data: { annotationId: string; message: string; lockedBy?: AnnotationLock }) => {
+      console.warn(`Lock error for ${data.annotationId}: ${data.message}`)
+      // Error will be handled in the component via toast
+    })
+
+    return () => {
+      socket.off('annotationLocked')
+      socket.off('annotationUnlocked')
+      socket.off('lockError')
+    }
+  }, [documentId])
+
   // Actions
   const createAnnotation = useCallback((annotation: AnnotationTransferItem) => {
     if (!socketRef.current || !documentId) return
@@ -346,6 +398,25 @@ export function useDocumentCollaboration(
     socketRef.current.emit('updateCursor', { documentId, userId, cursor })
   }, [documentId, userId])
 
+  const lockAnnotationForEditing = useCallback((annotationId: string) => {
+    if (!socketRef.current || !documentId) return
+    socketRef.current.emit('lockAnnotation', {
+      documentId,
+      annotationId,
+      userId,
+      userName,
+    })
+  }, [documentId, userId, userName])
+
+  const unlockAnnotation = useCallback((annotationId: string) => {
+    if (!socketRef.current || !documentId) return
+    socketRef.current.emit('unlockAnnotation', {
+      documentId,
+      annotationId,
+      userId,
+    })
+  }, [documentId, userId])
+
   return {
     isConnected,
     isJoined,
@@ -353,12 +424,15 @@ export function useDocumentCollaboration(
     annotations,
     threads,
     users,
+    lockedAnnotations,
     createAnnotation,
     updateAnnotation,
     deleteAnnotation,
     createThread,
     addReply,
     updateCursor,
+    lockAnnotationForEditing,
+    unlockAnnotation,
     setAnnotations,
     setThreads,
   }

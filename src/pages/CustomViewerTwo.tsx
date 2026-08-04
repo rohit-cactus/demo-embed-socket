@@ -3,6 +3,7 @@ import { createPluginRegistration } from '@embedpdf/core'
 import { EmbedPDF } from '@embedpdf/core/react'
 import { usePdfiumEngine } from '@embedpdf/engines/react'
 import RichTextEditor from '../components/RichTextEditor'
+import { Toast } from '../components/Toast'
 import {
   AnnotationLayer,
   AnnotationPluginPackage,
@@ -1284,11 +1285,14 @@ const AnnotatedDocumentWorkspace = ({
     annotations: collabAnnotations,
     threads,
     users,
+    lockedAnnotations,
     createAnnotation,
     updateAnnotation,
     deleteAnnotation,
     createThread,
     addReply,
+    lockAnnotationForEditing,
+    unlockAnnotation,
   } = useDocumentCollaboration(documentId, userId, userName)
   const [currentAuthorName, setCurrentAuthorName] = useState(userName)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
@@ -1298,6 +1302,8 @@ const AnnotatedDocumentWorkspace = ({
   const [threadPositions, setThreadPositions] = useState<Record<string, ThreadPosition>>({})
   const [pendingDraftPosition, setPendingDraftPosition] = useState<ThreadPosition | null>(null)
   const [focusedAnnotationId, setFocusedAnnotationId] = useState<string | null>(null)
+  const [toastMessage, setToastMessage] = useState<{ message: string; type: 'error' | 'warning' | 'info' | 'success' } | null>(null)
+  const [currentlyLockedAnnotationId, setCurrentlyLockedAnnotationId] = useState<string | null>(null)
   const focusTimeoutRef = useRef<number | null>(null)
 
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
@@ -1326,7 +1332,50 @@ const AnnotatedDocumentWorkspace = ({
     setThreadPositions({})
     setPendingDraftPosition(null)
     setFocusedAnnotationId(null)
+    setCurrentlyLockedAnnotationId(null)
+    setToastMessage(null)
   }, [documentId])
+
+  // Handle annotation locking on selection - prevent concurrent edits
+  useEffect(() => {
+    if (!state.selectedUids.length) {
+      // No annotation selected - unlock any previously locked annotation
+      if (currentlyLockedAnnotationId) {
+        unlockAnnotation(currentlyLockedAnnotationId)
+        setCurrentlyLockedAnnotationId(null)
+      }
+      return
+    }
+
+    const selectedAnnotation = state.byUid[state.selectedUids[0]]?.object
+    if (!selectedAnnotation) return
+
+    // Check if this annotation is locked by someone else
+    const lock = lockedAnnotations[selectedAnnotation.id]
+    if (lock && lock.userId !== userId) {
+      // Annotation is locked by another user - show error and deselect
+      setToastMessage({
+        message: `This annotation is being edited by ${lock.userName}. Please wait...`,
+        type: 'warning',
+      })
+      annotationApi?.deselectAnnotation()
+      return
+    }
+
+    // Lock this annotation for current user if we haven't already
+    if (currentlyLockedAnnotationId !== selectedAnnotation.id) {
+      lockAnnotationForEditing(selectedAnnotation.id)
+      setCurrentlyLockedAnnotationId(selectedAnnotation.id)
+    }
+  }, [
+    state.selectedUids,
+    state.byUid,
+    userId,
+    annotationApi,
+    lockedAnnotations,
+    currentlyLockedAnnotationId,
+    lockAnnotationForEditing,
+  ])
 
   // Import annotations from the collaboration server once we've joined the room
   // (and pick up any new ones added later by other users).
@@ -1670,6 +1719,14 @@ const AnnotatedDocumentWorkspace = ({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
+      {toastMessage && (
+        <Toast
+          message={toastMessage.message}
+          type={toastMessage.type}
+          duration={4000}
+          onClose={() => setToastMessage(null)}
+        />
+      )}
       <ImportExportToolbar
         documentId={documentId}
         threads={threads}
@@ -1773,11 +1830,15 @@ const AnnotatedDocumentWorkspace = ({
                   <AnnotationLayer
                     documentId={documentId}
                     pageIndex={pageIndex}
-                    selectionOutline={{ color: '#475569', style: 'solid', width: 1, offset: 2 }}
+                    selectionOutline={{ color: '#475569', style: 'dashed', width: 1, offset: 2 }}
                     groupSelectionOutline={{ color: '#64748b', style: 'dashed', width: 2, offset: 3 }}
+                    rotationUI={{  color: '#475569', size: 0 }} 
                     customAnnotationRenderer={({ annotation, isSelected, children, onSelect, scale }) => {
                       const thread = threads.find((item) => item.annotationId === annotation.id)
                       const isFocusedFromThread = focusedAnnotationId === annotation.id
+                      const lock = lockedAnnotations[annotation.id]
+                      const isLockedByOther = lock && lock.userId !== userId
+                      const isLockedByMe = lock && lock.userId === userId
 
                       if (thread) {
                         annotationMetricsRef.current[annotation.id] = {
@@ -1785,7 +1846,11 @@ const AnnotatedDocumentWorkspace = ({
                           yOffsetPx: (annotation.rect.origin.y + annotation.rect.size.height / 2) * scale,
                         }
                       }
-
+// isLockedByOther
+//                                   ? '2px dashed #f59e0b'
+//                                   : isLockedByMe
+//                                     ? '2px solid #3b82f6'
+//                                     : 'none',
                       return (
                         <div
                           onClick={(event) => {
@@ -1794,6 +1859,7 @@ const AnnotatedDocumentWorkspace = ({
                               setActiveThreadId(thread.id)
                             }
                           }}
+                          data-id={'Rohit'}
                           style={{
                             position: 'relative',
                             outline:
@@ -1804,8 +1870,13 @@ const AnnotatedDocumentWorkspace = ({
                             boxShadow:
                               isFocusedFromThread
                                 ? '0 0 0 5px rgba(16, 185, 129, 0.35)'
-                                : 'none',
-                            transition: 'box-shadow 180ms ease',
+                                : isLockedByOther
+                                  ? '0 0 0 4px rgba(245, 158, 11, 0.2)'
+                                  // : isLockedByMe
+                                  //   ? '0 0 0 4px rgba(59, 130, 246, 0.2)'
+                                    : 'none',
+                            opacity: isLockedByOther ? 0.6 : 1,
+                            transition: 'box-shadow 180ms ease, opacity 180ms ease, outline 180ms ease',
                           }}
                         >
                           {children}
@@ -1833,6 +1904,31 @@ const AnnotatedDocumentWorkspace = ({
                             >
                               <MessageSquare size={10} />
                               <span>{thread.messages.length}</span>
+                            </div>
+                          )}
+                          {lock && (
+                            <div
+                              title={`Locked by ${lock.userName}`}
+                              style={{
+                                position: 'absolute',
+                                top: isLockedByOther ? -10 : -8,
+                                left: isLockedByOther ? -10 : -8,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                width: 20,
+                                height: 20,
+                                borderRadius: '50%',
+                                border: `2px solid ${isLockedByOther ? '' : '#3b82f6'}`,
+                                background: isLockedByOther ? '#fef3c7' : '#dbeafe',
+                                fontSize: 10,
+                                fontWeight: 700,
+                                color: isLockedByOther ? '#92400e' : '#1e40af',
+                                lineHeight: 1,
+                                pointerEvents: 'none',
+                              }}
+                            >
+                              {lock.userName[0]?.toUpperCase() || '?'}
                             </div>
                           )}
                         </div>

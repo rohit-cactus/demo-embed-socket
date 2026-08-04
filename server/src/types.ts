@@ -62,6 +62,14 @@ export interface User {
   lastSeen: number
 }
 
+export interface AnnotationLock {
+  annotationId: string
+  userId: string
+  userName: string
+  acquiredAt: number
+  expiresAt: number
+}
+
 export interface DocumentRoom {
   documentId: string
   annotations: AnnotationTransferItem[]
@@ -84,8 +92,12 @@ export interface SocketEvents {
 
   updateCursor: (data: { documentId: string; userId: string; cursor: User['cursor'] }) => void
 
+  // Annotation locking (concurrent edit prevention)
+  lockAnnotation: (data: { documentId: string; annotationId: string; userId: string; userName: string }) => void
+  unlockAnnotation: (data: { documentId: string; annotationId: string; userId: string }) => void
+
   // Server -> Client
-  documentState: (data: { annotations: AnnotationTransferItem[]; threads: CommentThread[]; users: User[] }) => void
+  documentState: (data: { annotations: AnnotationTransferItem[]; threads: CommentThread[]; users: User[]; lockedAnnotations: AnnotationLock[] }) => void
   annotationCreated: (data: { annotation: AnnotationTransferItem; userId: string }) => void
   annotationUpdated: (data: { annotationId: string; updates: Partial<Annotation>; userId: string }) => void
   annotationDeleted: (data: { pageIndex: number; annotationId: string; userId: string }) => void
@@ -96,6 +108,11 @@ export interface SocketEvents {
   userJoined: (data: { user: User }) => void
   userLeft: (data: { userId: string }) => void
   cursorUpdated: (data: { userId: string; cursor: User['cursor'] }) => void
+
+  // Annotation lock events
+  annotationLocked: (data: { lock: AnnotationLock }) => void
+  annotationUnlocked: (data: { annotationId: string }) => void
+  lockError: (data: { annotationId: string; message: string; lockedBy?: AnnotationLock }) => void
 
   error: (message: string) => void
 }

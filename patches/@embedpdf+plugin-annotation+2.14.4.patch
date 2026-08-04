@@ -1,0 +1,36 @@
+diff --git a/node_modules/@embedpdf/plugin-annotation/dist/react/index.js b/node_modules/@embedpdf/plugin-annotation/dist/react/index.js
+index 706f9e0..1faa756 100644
+--- a/node_modules/@embedpdf/plugin-annotation/dist/react/index.js
++++ b/node_modules/@embedpdf/plugin-annotation/dist/react/index.js
+@@ -1730,6 +1730,7 @@ function Line({
+               transform: endings.start.transform,
+               stroke: strokeColor,
+               fill: endings.start.filled ? color : "none",
++              opacity,
+               style: {
+                 pointerEvents: "none",
+                 strokeWidth,
+@@ -1747,6 +1748,7 @@ function Line({
+               transform: endings.end.transform,
+               stroke: strokeColor,
+               fill: endings.end.filled ? color : "none",
++              opacity,
+               style: {
+                 pointerEvents: "none",
+                 strokeWidth,
+@@ -1900,6 +1902,7 @@ function Polyline({
+               transform: endings.start.transform,
+               stroke: strokeColor,
+               fill: endings.start.filled ? color : "none",
++              opacity,
+               style: {
+                 pointerEvents: "none",
+                 strokeWidth,
+@@ -1917,6 +1920,7 @@ function Polyline({
+               transform: endings.end.transform,
+               stroke: strokeColor,
+               fill: endings.end.filled ? color : "none",
++              opacity,
+               style: {
+                 pointerEvents: "none",
+                 strokeWidth,

@@ -9,7 +9,8 @@
     "dev:all": "concurrently \"npm run dev\" \"npm run dev:server\"",
     "build": "vite build",
     "preview": "vite preview",
-    "install:server": "cd server && npm install"
+    "install:server": "cd server && npm install",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@embedpdf/core": "^2.14.4",
@@ -37,6 +38,7 @@
     "@types/react-dom": "^18.2.19",
     "@vitejs/plugin-react": "^4.2.1",
     "concurrently": "^10.0.4",
+    "patch-package": "^8.0.1",
     "typescript": "^5.2.2",
     "vite": "^5.1.0"
   }

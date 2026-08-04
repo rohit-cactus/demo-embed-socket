@@ -11,7 +11,7 @@
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import { createPluginRegistration } from '@embedpdf/core'
-import { EmbedPDF } from '@embedpdf/core/react'
+import { EmbedPDF, useDocumentState } from '@embedpdf/core/react'
 import { usePdfiumEngine } from '@embedpdf/engines/react'
 import {
   DocumentContent,
@@ -48,7 +48,7 @@ import { Loader2, MessageSquare } from 'lucide-react'
 
 import { ToolRail } from './components/ToolRail'
 import { AnnotationToolHeader } from './components/AnnotationToolHeader'
-import { CommentPanel } from './components/CommentPanel'
+import { CommentPanel, type ThreadPosition } from './components/CommentPanel'
 import { useAnnotationMeta } from './hooks/useAnnotationMeta'
 import type { AnnotationToolId, ColorOption, LineStyle, TextMarkupToolId } from './types'
 import { PdfAnnotationSubtype, type PdfAnnotationObject, type Rect } from '@embedpdf/models'
@@ -108,6 +108,8 @@ const generateId = (): string => {
   }
   return `id_${Math.random().toString(36).slice(2)}_${Date.now()}`
 }
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
 // ============================================================================
 // Annotation Persistence Component
@@ -321,8 +323,6 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
   const [activeTool, setActiveTool] = useState<AnnotationToolId | null>(null)
   const [selectedColor, setSelectedColor] = useState<ColorOption>(DEFAULT_COLOR)
   const [selectedOpacity, setSelectedOpacity] = useState(100)
-  const [selectedLineStyle, setSelectedLineStyle] = useState<LineStyle>(DEFAULT_LINE_STYLE.id)
-  const [lineWidth, setLineWidth] = useState(2)
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
   const [selectedAnnotationUid, setSelectedAnnotationUid] = useState<string | null>(null)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
@@ -332,10 +332,13 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
   const textSelectionEnabled = true
   const annotationEditingEnabled = true
   const persistencePaused = false
+  const selectedLineStyle: LineStyle = DEFAULT_LINE_STYLE.id
+  const lineWidth = 2
 
   const pageRefs = useRef<Record<number, HTMLDivElement | null>>({})
   const threadCardRefs = useRef<Record<string, HTMLDivElement | null>>({})
   const viewportRef = useRef<HTMLDivElement | null>(null)
+  const [threadPositions, setThreadPositions] = useState<Record<string, ThreadPosition>>({})
 
   // Sync tool with annotation API
   useEffect(() => {
@@ -526,20 +529,6 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
     }
   }, [selectedAnnotationId, selectedTrackedAnnotation, annotationApi, annotationMeta])
 
-  const handleLineStyleChange = useCallback((lineStyle: LineStyle) => {
-    setSelectedLineStyle(lineStyle)
-    if (selectedAnnotationId) {
-      annotationMeta.updateAnnotationLineStyle(selectedAnnotationId, lineStyle)
-    }
-  }, [selectedAnnotationId, annotationMeta])
-
-  const handleLineWidthChange = useCallback((width: number) => {
-    setLineWidth(width)
-    if (selectedAnnotationId) {
-      annotationMeta.updateAnnotationLineWidth(selectedAnnotationId, width)
-    }
-  }, [selectedAnnotationId, annotationMeta])
-
   const handleOpacityChange = useCallback((opacityPercent: number) => {
     const clamped = Math.max(0, Math.min(100, opacityPercent))
     setSelectedOpacity(clamped)
@@ -605,7 +594,7 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
   }, [annotationMeta, annotationApi])
 
   const handleStartCommentDraft = useCallback((draft: CommentDraft) => {
-    const thread = annotationMeta.addThread(draft.annotationId, draft.quote, draft.pageIndex, 0.5)
+    const thread = annotationMeta.addThread(draft.annotationId, draft.quote, draft.pageIndex, draft.anchorRatio)
     setSelectedAnnotationId(draft.annotationId)
     setActiveThreadId(thread.id)
   }, [annotationMeta])
@@ -631,6 +620,84 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
   const handleThreadRef = useCallback((threadId: string, el: HTMLDivElement | null) => {
     threadCardRefs.current[threadId] = el
   }, [])
+
+  // Recomputes each comment card's sidebar `top` so it lines up with where its
+  // highlighted text sits on the PDF page — a page's cards move together as the
+  // viewport scrolls, and cards are hidden once their page scrolls out of view.
+  const recalculateThreadPositions = useCallback(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+
+    const viewportRect = viewport.getBoundingClientRect()
+    const raw: Array<{ id: string; top: number; visible: boolean; height: number }> = []
+
+    for (const thread of annotationMeta.threads) {
+      const pageEl = pageRefs.current[thread.pageIndex]
+      if (!pageEl) {
+        raw.push({ id: thread.id, top: 0, visible: false, height: 0 })
+        continue
+      }
+
+      const pageRect = pageEl.getBoundingClientRect()
+      const visible = pageRect.bottom > viewportRect.top && pageRect.top < viewportRect.bottom
+      const estimatedHeight = threadCardRefs.current[thread.id]?.offsetHeight ?? 180
+
+      raw.push({
+        id: thread.id,
+        top: pageRect.top - viewportRect.top + pageRect.height * thread.anchorRatio - estimatedHeight / 2,
+        visible,
+        height: estimatedHeight,
+      })
+    }
+
+    const visibleItems = raw.filter((item) => item.visible).sort((a, b) => a.top - b.top)
+    const minGap = 14
+    for (let i = 1; i < visibleItems.length; i += 1) {
+      const prevBottom = visibleItems[i - 1].top + visibleItems[i - 1].height + minGap
+      if (visibleItems[i].top < prevBottom) {
+        visibleItems[i].top = prevBottom
+      }
+    }
+
+    const next: Record<string, ThreadPosition> = {}
+    for (const item of raw) {
+      const adjusted = visibleItems.find((candidate) => candidate.id === item.id)
+      const top = adjusted ? adjusted.top : item.top
+      next[item.id] = {
+        visible: item.visible,
+        top: clamp(top, 24, Math.max(viewportRect.height - item.height - 24, 24)),
+        height: item.height,
+      }
+    }
+
+    setThreadPositions((prev) => {
+      const hasChanged =
+        Object.keys(prev).length !== Object.keys(next).length ||
+        Object.entries(next).some(([id, value]) => {
+          const prevValue = prev[id]
+          return !prevValue || prevValue.visible !== value.visible || Math.abs(prevValue.top - value.top) > 0.5
+        })
+      return hasChanged ? next : prev
+    })
+  }, [annotationMeta.threads])
+
+  useEffect(() => {
+    recalculateThreadPositions()
+  }, [recalculateThreadPositions, activeThreadId])
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    if (!viewport) return
+
+    const onScroll = () => recalculateThreadPositions()
+    viewport.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onScroll)
+
+    return () => {
+      viewport.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onScroll)
+    }
+  }, [recalculateThreadPositions])
 
   // Custom annotation renderer
   const customAnnotationRenderer = useCallback(
@@ -700,8 +767,14 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
   )
 
   const orderedThreads = useMemo(() => {
-    return [...annotationMeta.threads].sort((a, b) => a.createdAt - b.createdAt)
-  }, [annotationMeta.threads])
+    return [...annotationMeta.threads].sort((a, b) => {
+      const aPos = threadPositions[a.id]
+      const bPos = threadPositions[b.id]
+      if (aPos && bPos) return aPos.top - bPos.top
+      if (a.pageIndex !== b.pageIndex) return a.pageIndex - b.pageIndex
+      return a.createdAt - b.createdAt
+    })
+  }, [annotationMeta.threads, threadPositions])
 
   const selectedAnnotationToolId = useMemo(() => {
     const subtype = selectedTrackedAnnotation?.object?.type
@@ -773,18 +846,14 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
               label={toolHeaderLabel}
               currentColor={selectedColor.hex}
               currentOpacity={selectedOpacity}
-              currentLineStyle={selectedLineStyle}
-              currentLineWidth={lineWidth}
               onColorChange={handleColorChange}
               onOpacityChange={handleOpacityChange}
-              onLineStyleChange={handleLineStyleChange}
-              onLineWidthChange={handleLineWidthChange}
               onDelete={selectedAnnotationId ? handleDeleteAnnotation : undefined}
               isTextMarkup={isTextMarkupTool(toolHeaderAnnotationType)}
             />
           )}
 
-          <div ref={viewportRef} className="min-h-0 flex-1 overflow-hidden bg-paper-100">
+          <div ref={viewportRef} className="min-h-0 flex-1 overflow-hidden bg-white">
             <Viewport documentId={documentId} className="h-full w-full overflow-hidden">
               <Scroller
                 documentId={documentId}
@@ -833,6 +902,7 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
         {/* Comment Panel (Right) */}
         <CommentPanel
           threads={orderedThreads}
+          positions={threadPositions}
           activeThreadId={activeThreadId}
           currentAuthorName={authorName}
           onAddReply={handleAddReply}
@@ -854,6 +924,7 @@ interface CommentDraft {
   annotationId: string
   pageIndex: number
   quote: string
+  anchorRatio: number
 }
 
 interface SelectionMenuProps {
@@ -875,6 +946,7 @@ const SelectionMenu = ({
 }: SelectionMenuProps) => {
   const { provides: annotationApi } = useAnnotation(documentId)
   const { provides: selectionCapability } = useSelectionCapability()
+  const documentState = useDocumentState(documentId)
 
   const handleCreate = useCallback(
     (toolId: TextMarkupToolId) => {
@@ -933,10 +1005,16 @@ const SelectionMenu = ({
           created: new Date(),
         } as any)
 
+        const pageHeight = documentState?.document?.pages[selection.pageIndex]?.size.height
+        const anchorRatio = pageHeight
+          ? Math.min(0.96, Math.max(0.04, selection.rect.origin.y / pageHeight))
+          : 0.5
+
         onStartComment({
           annotationId: id,
           pageIndex: selection.pageIndex,
           quote: quote || 'Selected text',
+          anchorRatio,
         })
       }
 
@@ -948,7 +1026,7 @@ const SelectionMenu = ({
       (lines) => createDrafts(lines.join(' ').replace(/\s+/g, ' ').trim()),
       () => createDrafts('')
     )
-  }, [annotationApi, annotationEditingEnabled, documentId, onStartComment, selectionCapability])
+  }, [annotationApi, annotationEditingEnabled, documentId, documentState, onStartComment, selectionCapability])
 
   const top = placement.suggestTop ? -44 : rect.size.height + 8
 

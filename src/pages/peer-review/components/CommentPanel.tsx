@@ -213,8 +213,15 @@ export const ThreadBlock = ({
 // CommentPanel Component
 // ============================================================================
 
+export interface ThreadPosition {
+  top: number
+  visible: boolean
+  height: number
+}
+
 export interface CommentPanelProps {
   threads: CommentThread[]
+  positions: Record<string, ThreadPosition>
   activeThreadId: string | null
   currentAuthorName: string
   onAddReply: (threadId: string, text: string) => void
@@ -226,6 +233,7 @@ export interface CommentPanelProps {
 
 export const CommentPanel = ({
   threads,
+  positions,
   activeThreadId,
   currentAuthorName,
   onAddReply,
@@ -234,8 +242,16 @@ export const CommentPanel = ({
   onFocusThread,
   onThreadRef,
 }: CommentPanelProps) => {
+  const visibleThreads = threads.filter((thread) => positions[thread.id]?.visible)
+
+  const scrollContentHeight = visibleThreads.reduce((maxBottom, thread) => {
+    const pos = positions[thread.id]
+    if (!pos) return maxBottom
+    return Math.max(maxBottom, pos.top + pos.height + 24)
+  }, 0)
+
   return (
-    <aside className="flex w-90 shrink-0 flex-col overflow-hidden border-l border-paper-200 bg-paper-50 font-ui">
+    <aside className="flex w-105 shrink-0 flex-col overflow-hidden border-l border-paper-200 bg-paper-50 font-ui">
       <div className="flex shrink-0 items-center gap-2 border-b border-paper-200 bg-white/60 px-4 py-3">
         <MessageSquare size={16} className="text-ink-700" />
         <span className="font-display text-[15px] font-semibold text-paper-900">Comments</span>
@@ -255,20 +271,30 @@ export const CommentPanel = ({
           </p>
         </div>
       ) : (
-        <div className="flex-1 space-y-3 overflow-y-auto px-3 py-3">
-          {threads.map((thread) => (
-            <ThreadBlock
-              key={thread.id}
-              thread={thread}
-              isActive={activeThreadId === thread.id}
-              currentAuthorName={currentAuthorName}
-              onReply={(text) => onAddReply(thread.id, text)}
-              onDeleteComment={(commentId) => onDeleteComment(thread.id, commentId)}
-              onDeleteThread={() => onDeleteThread(thread.id)}
-              onFocus={() => onFocusThread(thread.id)}
-              threadRef={(el) => onThreadRef?.(thread.id, el)}
-            />
-          ))}
+        <div className="relative flex-1 overflow-y-auto overflow-x-hidden">
+          <div
+            className="relative"
+            style={{ height: scrollContentHeight > 0 ? scrollContentHeight : undefined, minHeight: '100%' }}
+          >
+            {visibleThreads.map((thread) => (
+              <div
+                key={thread.id}
+                className="absolute inset-x-3"
+                style={{ top: positions[thread.id]?.top ?? 0 }}
+              >
+                <ThreadBlock
+                  thread={thread}
+                  isActive={activeThreadId === thread.id}
+                  currentAuthorName={currentAuthorName}
+                  onReply={(text) => onAddReply(thread.id, text)}
+                  onDeleteComment={(commentId) => onDeleteComment(thread.id, commentId)}
+                  onDeleteThread={() => onDeleteThread(thread.id)}
+                  onFocus={() => onFocusThread(thread.id)}
+                  threadRef={(el) => onThreadRef?.(thread.id, el)}
+                />
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </aside>

@@ -3,10 +3,10 @@
  *
  * A React PDF annotation viewer for peer-review using EmbedPDF Headless.
  * Features:
- * - Toolbar with annotation tools (pen, shapes, text markup)
- * - Color palette and line style options
- * - Comment threading panel
- * - Floating contextual toolbar for selected annotations
+ * - Sticky tool rail with annotation tools (pen, shapes, text markup)
+ * - Static tool-context header (color, line style, opacity, delete) pinned
+ *   above the PDF column — no floating popover, so it never drifts on scroll
+ * - Sticky comment threading panel
  */
 
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
@@ -44,24 +44,22 @@ import {
 } from '@embedpdf/plugin-interaction-manager/react'
 import { HistoryPluginPackage } from '@embedpdf/plugin-history/react'
 import { ExportPluginPackage } from '@embedpdf/plugin-export/react'
-import { Loader2, MessageSquare, Trash2 } from 'lucide-react'
+import { Loader2, MessageSquare } from 'lucide-react'
 
 import { ToolRail } from './components/ToolRail'
-import { ContextualToolbar } from './components/ContextualToolbar'
+import { AnnotationToolHeader } from './components/AnnotationToolHeader'
 import { CommentPanel } from './components/CommentPanel'
 import { useAnnotationMeta } from './hooks/useAnnotationMeta'
 import type { AnnotationToolId, ColorOption, LineStyle, TextMarkupToolId } from './types'
 import { PdfAnnotationSubtype, type PdfAnnotationObject, type Rect } from '@embedpdf/models'
 import {
-  COLOR_PALETTE,
   DEFAULT_COLOR,
   DEFAULT_LINE_STYLE,
   isTextMarkupTool,
   mapAnnotationSubtypeToToolId,
   TOOL_CONFIGS,
 } from './types'
-import { getColorByHex } from './utils/styleUtils'
-import '../../styles/PeerReview.css'
+import { getColorByHex, getStrokeDashArray } from './utils/styleUtils'
 
 // ============================================================================
 // Constants
@@ -328,7 +326,6 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
   const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null)
   const [selectedAnnotationUid, setSelectedAnnotationUid] = useState<string | null>(null)
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
-  const [toolbarPosition, setToolbarPosition] = useState<{ x: number; y: number } | null>(null)
 
   // These have no UI toggle yet, so they stay fixed rather than carrying
   // unused setters around.
@@ -364,16 +361,26 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
     }
   }, [annotationApi, annotationEditingEnabled])
 
-  // Push selected color into tool defaults so new annotations draw with it
+  // Push selected color/opacity/line style into tool defaults so new
+  // annotations draw with them — lets the header configure a tool before
+  // the first shape is drawn, not just after.
   useEffect(() => {
     if (!annotationCapability) return
 
     const hex = selectedColor.hex
     const opacity = selectedOpacity / 100
+    const dashArrayStr = getStrokeDashArray(selectedLineStyle, lineWidth)
+    const strokeDashArray = dashArrayStr ? dashArrayStr.split(',').map(Number) : undefined
 
-    // Shapes: colored stroke, transparent fill
+    // Shapes/ink: colored stroke, transparent fill, line style + width
     for (const toolId of ['circle', 'square', 'polygon', 'ink', 'lineArrow']) {
-      annotationCapability.setToolDefaults(toolId, { strokeColor: hex, color: 'transparent', opacity })
+      annotationCapability.setToolDefaults(toolId, {
+        strokeColor: hex,
+        color: 'transparent',
+        opacity,
+        strokeWidth: lineWidth,
+        strokeDashArray,
+      })
     }
     // Text markup: both strokeColor and fill color
     for (const toolId of ['highlight', 'underline', 'strikeout']) {
@@ -383,7 +390,7 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
     annotationCapability.setToolDefaults('freeText', { fontColor: hex, opacity } as any)
     // Sticky note: icon color
     annotationCapability.setToolDefaults('textComment', { strokeColor: hex, opacity })
-  }, [annotationCapability, selectedColor, selectedOpacity])
+  }, [annotationCapability, selectedColor, selectedOpacity, selectedLineStyle, lineWidth])
 
   // Handle annotation selection from state
   useEffect(() => {
@@ -414,23 +421,6 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
       setSelectedOpacity(100)
     }
   }, [annotationState, annotationMeta])
-
-  // Update toolbar position when selection changes
-  useEffect(() => {
-    if (selectedAnnotationId) {
-      // Find the annotation element and position toolbar above it
-      const el = document.querySelector(`[data-annotation-id="${selectedAnnotationId}"]`)
-      if (el) {
-        const rect = el.getBoundingClientRect()
-        setToolbarPosition({
-          x: rect.left + rect.width / 2,
-          y: rect.top - 10,
-        })
-      }
-    } else {
-      setToolbarPosition(null)
-    }
-  }, [selectedAnnotationId])
 
   const selectedTrackedAnnotation = useMemo(() => {
     if (selectedAnnotationUid) {
@@ -718,95 +708,50 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
     return mapAnnotationSubtypeToToolId(subtype)
   }, [selectedTrackedAnnotation])
 
-  const canAdjustOpacity = useMemo(() => {
-    if (!selectedAnnotationId) return false
-
-    // If selected annotation subtype is not yet resolved from plugin state,
-    // keep opacity visible so users can still adjust immediately.
-    if (!selectedTrackedAnnotation) return true
-
-    if (isTextMarkupTool(selectedAnnotationToolId)) return true
-
-    return selectedAnnotationToolId === 'ink' ||
-      selectedAnnotationToolId === 'lineArrow' ||
-      selectedAnnotationToolId === 'square' ||
-      selectedAnnotationToolId === 'circle' ||
-      selectedAnnotationToolId === 'polygon'
-  }, [selectedAnnotationId, selectedAnnotationToolId, selectedTrackedAnnotation])
-
   const selectedAnnotationLabel = useMemo(
     () => TOOL_CONFIGS.find((t) => t.id === selectedAnnotationToolId)?.name ?? 'Annotation',
     [selectedAnnotationToolId]
   )
 
+  const activeToolLabel = useMemo(
+    () => TOOL_CONFIGS.find((t) => t.id === activeTool)?.name,
+    [activeTool]
+  )
+
+  // Header shows whenever a drawing/markup tool is armed or an annotation is
+  // selected — "select" alone has no color/style controls worth surfacing.
+  const isToolHeaderVisible = (!!activeTool && activeTool !== 'select') || !!selectedAnnotationId
+  const toolHeaderAnnotationType: AnnotationToolId = selectedAnnotationId
+    ? selectedAnnotationToolId
+    : activeTool ?? 'select'
+  const toolHeaderLabel = selectedAnnotationId
+    ? `${selectedAnnotationLabel} selected`
+    : activeToolLabel
+
   return (
-    <div className="peer-review-workspace">
+    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-paper-200 bg-white font-ui">
       <AnnotationPersistence documentId={documentId} isPaused={persistencePaused} />
 
-      {/* Top Bar */}
-      <header className="peer-review-header">
-        <div className="peer-review-header-top">
-          <div className="peer-review-header-left">
-            <label className="author-input-label">
-              Reviewer
-              <input
-                type="text"
-                value={authorName}
-                onChange={(e) => onAuthorNameChange(e.target.value)}
-                className="author-input"
-                placeholder="Your name"
-              />
-            </label>
-          </div>
-          <div className="peer-review-header-right">
-            <span className="document-title">{INITIAL_PDF.name}</span>
-          </div>
-        </div>
-        {selectedAnnotationId && (
-          <div className="peer-review-selection-bar">
-            <span className="selection-type-label">
-              {selectedAnnotationLabel} selected
-            </span>
-            <div className="selection-colors">
-              {COLOR_PALETTE.map((color) => (
-                <button
-                  key={color.id}
-                  type="button"
-                  className={`selection-color-swatch${selectedColor.hex === color.hex ? ' active' : ''}`}
-                  style={{ backgroundColor: color.hex }}
-                  onClick={() => handleColorChange(color.hex)}
-                  title={color.label}
-                />
-              ))}
-            </div>
-            {canAdjustOpacity && (
-              <label className="selection-opacity-control">
-                <span>Opacity {selectedOpacity}%</span>
-                <input
-                  type="range"
-                  min={0}
-                  max={100}
-                  value={selectedOpacity}
-                  onChange={(e) => handleOpacityChange(Number(e.target.value))}
-                  className="selection-opacity-slider"
-                />
-              </label>
-            )}
-            <button
-              type="button"
-              className="selection-delete-btn"
-              onClick={handleDeleteAnnotation}
-            >
-              <Trash2 size={14} />
-              Delete
-            </button>
-          </div>
-        )}
+      {/* Top identity strip — full width, never scrolls */}
+      <header className="flex shrink-0 items-center justify-between gap-4 border-b border-paper-200 bg-paper-50 px-5 py-3">
+        <label className="flex items-center gap-2.5 text-xs font-semibold text-paper-500">
+          Reviewer
+          <input
+            type="text"
+            value={authorName}
+            onChange={(e) => onAuthorNameChange(e.target.value)}
+            placeholder="Your name"
+            className="w-40 rounded-md border border-paper-300 bg-white px-2.5 py-1.5 text-[13px] font-medium text-paper-900 transition-shadow placeholder:text-paper-400 focus:border-ink-500 focus:outline-none focus:ring-2 focus:ring-ink-100"
+          />
+        </label>
+        <span className="font-display text-[15px] font-medium text-paper-800">
+          {INITIAL_PDF.name}
+        </span>
       </header>
 
-      {/* Main Content */}
-      <div className="peer-review-content">
-        {/* Tool Rail (Left Sidebar) */}
+      {/* Content row — the PDF viewport is the only region that scrolls */}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {/* Tool Rail (Left) */}
         <ToolRail
           activeTool={activeTool}
           onToolSelect={handleToolSelect}
@@ -820,53 +765,72 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
           isAnnotationEditingEnabled={annotationEditingEnabled}
         />
 
-        {/* PDF Viewport */}
-        <div ref={viewportRef} className="peer-review-viewport">
-          <Viewport documentId={documentId} className="peer-review-viewport-inner">
-            <Scroller
-              documentId={documentId}
-              renderPage={({ pageIndex }) => (
-                <div
-                  ref={(el) => {
-                    pageRefs.current[pageIndex] = el
-                  }}
-                  className="pdf-page-container"
-                >
-                  <PagePointerProvider documentId={documentId} pageIndex={pageIndex}>
-                    <RenderLayer
-                      documentId={documentId}
-                      pageIndex={pageIndex}
-                      style={{ pointerEvents: 'none' }}
-                    />
-                    {textSelectionEnabled && (
-                      <SelectionLayer
+        {/* PDF Column */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          {isToolHeaderVisible && (
+            <AnnotationToolHeader
+              annotationType={toolHeaderAnnotationType}
+              label={toolHeaderLabel}
+              currentColor={selectedColor.hex}
+              currentOpacity={selectedOpacity}
+              currentLineStyle={selectedLineStyle}
+              currentLineWidth={lineWidth}
+              onColorChange={handleColorChange}
+              onOpacityChange={handleOpacityChange}
+              onLineStyleChange={handleLineStyleChange}
+              onLineWidthChange={handleLineWidthChange}
+              onDelete={selectedAnnotationId ? handleDeleteAnnotation : undefined}
+              isTextMarkup={isTextMarkupTool(toolHeaderAnnotationType)}
+            />
+          )}
+
+          <div ref={viewportRef} className="min-h-0 flex-1 overflow-hidden bg-paper-100">
+            <Viewport documentId={documentId} className="h-full w-full overflow-hidden">
+              <Scroller
+                documentId={documentId}
+                renderPage={({ pageIndex }) => (
+                  <div
+                    ref={(el) => {
+                      pageRefs.current[pageIndex] = el
+                    }}
+                    className="relative mb-4 bg-white shadow-sm"
+                  >
+                    <PagePointerProvider documentId={documentId} pageIndex={pageIndex}>
+                      <RenderLayer
                         documentId={documentId}
                         pageIndex={pageIndex}
-                        selectionMenu={(props) => (
-                          <SelectionMenu
-                            {...props}
-                            documentId={documentId}
-                            annotationEditingEnabled={annotationEditingEnabled}
-                            onStartComment={handleStartCommentDraft}
-                          />
-                        )}
+                        style={{ pointerEvents: 'none' }}
                       />
-                    )}
-                    <AnnotationLayer
-                      documentId={documentId}
-                      pageIndex={pageIndex}
-                      selectionOutline={{ color: '#475569', style: 'solid', width: 1, offset: 2 }}
-                      groupSelectionOutline={{ color: '#64748b', style: 'dashed', width: 2, offset: 3 }}
-                      customAnnotationRenderer={customAnnotationRenderer}
-                    />
-                  </PagePointerProvider>
-                </div>
-              )}
-            />
-          </Viewport>
+                      {textSelectionEnabled && (
+                        <SelectionLayer
+                          documentId={documentId}
+                          pageIndex={pageIndex}
+                          selectionMenu={(props) => (
+                            <SelectionMenu
+                              {...props}
+                              documentId={documentId}
+                              annotationEditingEnabled={annotationEditingEnabled}
+                              onStartComment={handleStartCommentDraft}
+                            />
+                          )}
+                        />
+                      )}
+                      <AnnotationLayer
+                        documentId={documentId}
+                        pageIndex={pageIndex}
+                        selectionOutline={{ color: '#185d50', style: 'solid', width: 1, offset: 2 }}
+                        groupSelectionOutline={{ color: '#5aab95', style: 'dashed', width: 2, offset: 3 }}
+                        customAnnotationRenderer={customAnnotationRenderer}
+                      />
+                    </PagePointerProvider>
+                  </div>
+                )}
+              />
+            </Viewport>
+          </div>
         </div>
 
-        {/* Comment Panel (Right Sidebar) */}
+        {/* Comment Panel (Right) */}
         <CommentPanel
           threads={orderedThreads}
           activeThreadId={activeThreadId}
@@ -878,24 +842,6 @@ const Workspace = ({ documentId, authorName, onAuthorNameChange }: WorkspaceProp
           onThreadRef={handleThreadRef}
         />
       </div>
-
-      {/* Contextual Toolbar (Floating) */}
-      {selectedAnnotationId && toolbarPosition && (
-        <ContextualToolbar
-          annotationType={selectedAnnotationToolId}
-          currentColor={selectedColor.hex}
-          currentOpacity={selectedOpacity}
-          currentLineStyle={selectedLineStyle}
-          currentLineWidth={lineWidth}
-          position={toolbarPosition}
-          onColorChange={handleColorChange}
-          onOpacityChange={handleOpacityChange}
-          onLineStyleChange={handleLineStyleChange}
-          onLineWidthChange={handleLineWidthChange}
-          onDelete={handleDeleteAnnotation}
-          isTextMarkup={isTextMarkupTool(selectedAnnotationToolId)}
-        />
-      )}
     </div>
   )
 }
@@ -1009,25 +955,14 @@ const SelectionMenu = ({
   return (
     <div {...menuWrapperProps}>
       <div
-        style={{
-          position: 'absolute',
-          top,
-          pointerEvents: 'auto',
-          display: 'flex',
-          gap: 6,
-          background: '#0f172a',
-          border: '1px solid #334155',
-          borderRadius: 8,
-          padding: 6,
-          boxShadow: '0 8px 24px rgba(2, 6, 23, 0.45)',
-          zIndex: 20,
-        }}
+        style={{ position: 'absolute', top, pointerEvents: 'auto', zIndex: 20 }}
+        className="flex gap-1.5 rounded-lg border border-paper-700 bg-paper-900 p-1.5 font-ui shadow-lg shadow-paper-950/40"
       >
         <button
           type="button"
           onClick={() => handleCreate('highlight')}
           disabled={!annotationEditingEnabled}
-          className="selection-menu-btn highlight"
+          className="rounded-md border border-yellow-400 bg-yellow-300 px-2.5 py-1.5 text-xs font-semibold text-paper-900 transition-colors hover:bg-yellow-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Highlight
         </button>
@@ -1035,7 +970,7 @@ const SelectionMenu = ({
           type="button"
           onClick={() => handleCreate('underline')}
           disabled={!annotationEditingEnabled}
-          className="selection-menu-btn underline"
+          className="rounded-md border border-ink-300 bg-ink-100 px-2.5 py-1.5 text-xs font-semibold text-ink-900 transition-colors hover:bg-ink-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Underline
         </button>
@@ -1043,7 +978,7 @@ const SelectionMenu = ({
           type="button"
           onClick={() => handleCreate('strikeout')}
           disabled={!annotationEditingEnabled}
-          className="selection-menu-btn strikeout"
+          className="rounded-md border border-red-300 bg-red-100 px-2.5 py-1.5 text-xs font-semibold text-red-900 transition-colors hover:bg-red-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Strikeout
         </button>
@@ -1051,7 +986,7 @@ const SelectionMenu = ({
           type="button"
           onClick={handleStartComment}
           disabled={!annotationEditingEnabled}
-          className="selection-menu-btn comment"
+          className="flex items-center gap-1 rounded-md border border-emerald-300 bg-emerald-100 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 transition-colors hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-50"
         >
           <MessageSquare size={14} />
           Comment

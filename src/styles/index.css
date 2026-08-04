@@ -1,10 +1,50 @@
 
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Public+Sans:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+
+/* Peer Review page palette — a warm, ink-on-paper accent used only by that
+   page's components. Additive only; doesn't touch Tailwind's default scales. */
+@theme {
+  --font-display: 'Fraunces', ui-serif, Georgia, serif;
+  --font-ui: 'Public Sans', ui-sans-serif, system-ui, sans-serif;
+
+  --color-ink-50: #f0f8f6;
+  --color-ink-100: #dcefe9;
+  --color-ink-200: #b7ddd1;
+  --color-ink-300: #8bc6b5;
+  --color-ink-400: #5aab95;
+  --color-ink-500: #35907a;
+  --color-ink-600: #217362;
+  --color-ink-700: #185d50;
+  --color-ink-800: #144a41;
+  --color-ink-900: #0f3a33;
+  --color-ink-950: #082521;
+
+  --color-paper-50: #faf8f5;
+  --color-paper-100: #f3efe9;
+  --color-paper-200: #e7e1d6;
+  --color-paper-300: #d3cabb;
+  --color-paper-400: #ab9f8b;
+  --color-paper-500: #857a65;
+  --color-paper-600: #635a49;
+  --color-paper-700: #473f33;
+  --color-paper-800: #322c23;
+  --color-paper-900: #211c16;
+}
 
 @keyframes pdf-shimmer {
   0% { background-position: -600px 0; }
   100% { background-position: 600px 0; }
 }
+
+  @utility no-scrollbar {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+    
+    &::-webkit-scrollbar {
+      display: none; /* Chrome, Safari, and Opera */
+    }
+  }
 
 .pdf-skeleton-bone {
   background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
@@ -35,6 +75,11 @@
   --warning: #f59e0b;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   background-color: var(--background);
@@ -43,5 +88,5 @@ body {
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
 }

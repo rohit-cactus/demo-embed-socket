@@ -18,9 +18,11 @@ import {
   Strikethrough,
   ZoomIn,
   ZoomOut,
+  Check,
 } from 'lucide-react'
 import type { AnnotationToolId, ColorOption, ToolConfig } from '../types'
 import { TOOL_CONFIGS, COLOR_PALETTE } from '../types'
+import { getContrastingTextColor } from '../utils/styleUtils'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const ICON_MAP: Record<string, any> = {
@@ -67,12 +69,18 @@ const ToolButton = ({ tool, isActive, isDisabled, onClick }: ToolButtonProps) =>
       onClick={onClick}
       disabled={isDisabled}
       title={`${tool.name}${tool.shortcut ? ` (${tool.shortcut})` : ''}`}
-      className={`tool-rail-button ${isActive ? 'active' : ''} ${isDisabled ? 'disabled' : ''}`}
+      className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-colors ${
+        isActive
+          ? 'bg-ink-700 text-white shadow-sm'
+          : 'bg-paper-100 text-paper-600 hover:bg-paper-200 hover:text-paper-900'
+      } ${isDisabled ? 'cursor-not-allowed opacity-40 hover:bg-paper-100' : ''}`}
     >
-      <Icon size={20} />
+      <Icon size={18} />
     </button>
   )
 }
+
+const RailDivider = () => <div className="my-1 h-px w-8 shrink-0 bg-paper-200" />
 
 export const ToolRail = ({
   activeTool,
@@ -102,97 +110,94 @@ export const ToolRail = ({
   const textMarkupTools = TOOL_CONFIGS.filter((t) => t.category === 'textMarkup')
 
   return (
-    <aside className="tool-rail">
-      {/* Zoom Controls */}
-      <div className="tool-rail-section">
-        <button
-          type="button"
-          onClick={onZoomOut}
-          disabled={!canZoomOut}
-          title="Zoom out"
-          className="tool-rail-button"
-        >
-          <ZoomOut size={20} />
-        </button>
-        <div className="tool-rail-zoom-label">
-          {Math.round(zoomLevel * 100)}%
+    <aside className="flex w-20 shrink-0 items-center justify-center bg-paper-100 font-ui">
+      <div className="flex  flex-col items-center gap-1 overflow-y-auto rounded-2xl border border-paper-200 bg-white px-2 py-3 shadow-md shadow-paper-900/5 max-h-96 scroll-smooth no-scrollbar">
+        {/* Zoom Controls */}
+        <div className="flex flex-col items-center gap-1">
+          <button
+            type="button"
+            onClick={onZoomIn}
+            disabled={!canZoomIn}
+            title="Zoom in"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-paper-100 text-paper-600 transition-colors hover:bg-paper-200 hover:text-paper-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-paper-100"
+          >
+            <ZoomIn size={18} />
+          </button>
+          <div className="text-[10px] font-semibold tabular-nums text-paper-500">
+            {Math.round(zoomLevel * 100)}%
+          </div>
+          <button
+            type="button"
+            onClick={onZoomOut}
+            disabled={!canZoomOut}
+            title="Zoom out"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-paper-100 text-paper-600 transition-colors hover:bg-paper-200 hover:text-paper-900 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-paper-100"
+          >
+            <ZoomOut size={18} />
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={onZoomIn}
-          disabled={!canZoomIn}
-          title="Zoom in"
-          className="tool-rail-button"
-        >
-          <ZoomIn size={20} />
-        </button>
-      </div>
 
-      <div className="tool-rail-divider" />
+        <RailDivider />
 
-      {/* Selection Tool */}
-      <div className="tool-rail-section">
-        {selectionTools.map((tool) => (
-          <ToolButton
-            key={tool.id}
-            tool={tool}
-            isActive={activeTool === tool.id}
-            isDisabled={false}
-            onClick={() => handleToolClick(tool.id)}
-          />
-        ))}
-      </div>
+        {/* Selection Tool */}
+        <div className="flex flex-col items-center gap-1">
+          {selectionTools.map((tool) => (
+            <ToolButton
+              key={tool.id}
+              tool={tool}
+              isActive={activeTool === tool.id}
+              isDisabled={false}
+              onClick={() => handleToolClick(tool.id)}
+            />
+          ))}
+        </div>
 
-      <div className="tool-rail-divider" />
+        <RailDivider />
 
-      {/* Drawing Tools */}
-      <div className="tool-rail-section">
-        <div className="tool-rail-section-label">Draw</div>
-        {drawingTools.map((tool) => (
-          <ToolButton
-            key={tool.id}
-            tool={tool}
-            isActive={activeTool === tool.id}
-            isDisabled={!isAnnotationEditingEnabled}
-            onClick={() => handleToolClick(tool.id)}
-          />
-        ))}
-      </div>
+        {/* Drawing Tools */}
+        <div className="flex flex-col items-center gap-1">
+          {drawingTools.map((tool) => (
+            <ToolButton
+              key={tool.id}
+              tool={tool}
+              isActive={activeTool === tool.id}
+              isDisabled={!isAnnotationEditingEnabled}
+              onClick={() => handleToolClick(tool.id)}
+            />
+          ))}
+        </div>
 
-      <div className="tool-rail-divider" />
+        <RailDivider />
 
-      {/* Text Markup Tools */}
-      <div className="tool-rail-section">
-        <div className="tool-rail-section-label">Markup</div>
-        {textMarkupTools.map((tool) => (
-          <ToolButton
-            key={tool.id}
-            tool={tool}
-            isActive={activeTool === tool.id}
-            isDisabled={!isAnnotationEditingEnabled}
-            onClick={() => handleToolClick(tool.id)}
-          />
-        ))}
-      </div>
+        {/* Text Markup Tools */}
+        <div className="flex flex-col items-center gap-1">
+          {textMarkupTools.map((tool) => (
+            <ToolButton
+              key={tool.id}
+              tool={tool}
+              isActive={activeTool === tool.id}
+              isDisabled={!isAnnotationEditingEnabled}
+              onClick={() => handleToolClick(tool.id)}
+            />
+          ))}
+        </div>
 
-      <div className="tool-rail-divider" />
+        <RailDivider />
 
-      {/* Color Palette */}
-      <div className="tool-rail-section">
-        <div className="tool-rail-section-label">Color</div>
-        <div className="tool-rail-color-grid">
+        {/* Color Palette */}
+        <div className="grid grid-cols-2 gap-1.5 py-0.5">
           {COLOR_PALETTE.map((color) => (
             <button
               key={color.id}
               type="button"
               onClick={() => onColorSelect(color)}
               title={color.label}
-              className={`tool-rail-color-swatch ${selectedColor.id === color.id ? 'selected' : ''}`}
-              style={{ backgroundColor: color.hex }}
+              className={`flex h-5.5 w-5.5 items-center justify-center rounded-full ring-2 ring-offset-1 ring-offset-white transition-shadow ${
+                selectedColor.id === color.id ? 'ring-ink-600' : 'ring-transparent hover:ring-paper-300'
+              }`}
+              style={{ backgroundColor: color.hex, color: getContrastingTextColor(color.hex) }}
             >
-              {selectedColor.id === color.id && (
-                <span className="tool-rail-color-check">✓</span>
-              )}
+              {selectedColor.id === color.id && <Check size={10} strokeWidth={3} />}
             </button>
           ))}
         </div>
